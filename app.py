@@ -1,3 +1,5 @@
+
+import os
 import secrets
 import time
 import uuid
@@ -23,7 +25,7 @@ app = FastAPI()
 class Config(BaseModel):
     # API 密钥
     API_KEY: str = Field(
-        default="sk_dangbei666",
+        default=os.getenv('API_KEY', 'default_api_key'),  # 修改这里，从环境变量读取 API_KEY
         description="API key for authentication"
     )
     
