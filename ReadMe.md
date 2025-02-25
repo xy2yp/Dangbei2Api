@@ -4,7 +4,7 @@
 
 基于linux.do论坛 **@云胡不喜** 佬的脚本魔改。
 
-原贴点击[传送门](https://linux.do/t/topic/444507).
+原贴点击[传送门](https://linux.do/t/topic/444507) 。
 
 ## 功能说明
 
