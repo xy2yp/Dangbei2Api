@@ -318,11 +318,7 @@ async def chat(request: ChatRequest, authorization: str = Header(None)):
                     # 收集思考内容
                     if is_thinking and content != " \n":
                         thinking_content.append(content)
-                    # 将收集到的思考内容包裹在 <think> 标记中
-                    if thinking_content:
-                        wrapped_think = "<think>" + "".join(thinking_content) + "</think>"
-                        yield f"data: {json.dumps({'choices': [{'delta': {'content': wrapped_think}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n"
-                        thinking_content = []  # 清空思考内容
+
                         
             yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
