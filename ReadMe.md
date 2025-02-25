@@ -21,7 +21,7 @@
 
 ```plaintext
 API_KEY=sk-your_api_key  #随便写一个
-MAX_HISTORY=30  #最大对话历史记录数（默认30条）
+MAX_HISTORY=10  #最大对话历史记录数（默认30条）
 LOG_LEVEL=INFO  日志级别：DEBUG/INFO/WARNING/ERROR/CRITICAL
 ```
 
