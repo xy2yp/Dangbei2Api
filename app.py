@@ -45,7 +45,7 @@ class Config(BaseModel):
     
     # 最大历史记录数（默认保留10条对话历史）
 #    MAX_HISTORY: int = Field(
-#        default=30,
+#        default=10,
 #        description="保留的最大对话历史记录数"
 #    )
     
@@ -314,6 +314,11 @@ async def chat(request: ChatRequest, authorization: str = Header(None)):
                         is_thinking = True
                     elif content == "\n \n\n":
                         is_thinking = False
+                    # 将收集到的思考内容包裹在 <think> 标记中（新添加）
+                        if thinking_content:
+                            wrapped_think = "<think>" + "".join(thinking_content) + "</think>"
+                            yield f"data: {json.dumps({'choices': [{'delta': {'content': wrapped_think}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n"
+                            thinking_content = []  # 清空思考内容
                     # 收集思考内容
                     if is_thinking and content != " \n":
                         thinking_content.append(content)
