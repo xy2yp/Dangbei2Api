@@ -1,7 +1,9 @@
 # 当贝DeepSeek转API脚本
 
 这是一个将当贝网页deepseek(https://ai.dangbei.com) 转为兼容OpenAI API的python脚本。
-基于linuxdo论坛 **@云胡不喜** 佬的脚本魔改。
+
+基于linux.do论坛 **@云胡不喜** 佬的脚本魔改。
+
 原贴点击[传送门](https://linux.do/t/topic/444507).
 
 ## 功能说明
