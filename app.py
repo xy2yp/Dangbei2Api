@@ -318,7 +318,6 @@ async def chat(request: ChatRequest, authorization: str = Header(None)):
                     # 收集思考内容
                     if is_thinking and content != " \n":
                         thinking_content.append(content)
-
                         
             yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
