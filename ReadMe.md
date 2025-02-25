@@ -12,7 +12,7 @@
 触发方式：输入结尾添加 **@online** 或者 **@联网** 即可。
 
 **2.支持手动清除上下文**
-上下文历史记录默认30，可以自行在环境变量中修改。
+上下文历史记录默认10，可以自行在环境变量中修改。
 手动清除直接发送 **清除上下文** 即可。
 
 ## 部署说明
@@ -22,7 +22,7 @@
 ```plaintext
 API_KEY=sk-your_api_key  #随便写一个
 MAX_HISTORY=30  #最大对话历史记录数（默认30条）
-LOG_LEVEL=DEBUG  日志级别：DEBUG/INFO/WARNING/ERROR/CRITICAL
+LOG_LEVEL=INFO  日志级别：DEBUG/INFO/WARNING/ERROR/CRITICAL
 ```
 
 **2.支持Docker部署，可直接使用 Docker 命令**
