@@ -7,20 +7,21 @@ import hashlib  # 哈希加密
 import json     # JSON数据处理
 import httpx    # 异步HTTP请求
 import logging  # 日志记录
+import random  # 随机数生成
 from typing import AsyncGenerator, List, Dict, Union  # 类型提示
 from pydantic import BaseModel, Field  # 数据验证模型
 from fastapi import FastAPI, HTTPException, Header  # Web框架组件
 from fastapi.responses import StreamingResponse  # 流式响应支持
 from collections import OrderedDict  # 有序字典
 from datetime import datetime  # 日期时间处理
-import random  # 随机数生成
+
 
 # 配置日志记录（INFO级别）
 #logging.basicConfig(level=logging.INFO)
 #logger = logging.getLogger(__name__)
 
-# 从环境变量获取日志级别（默认INFO）
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+# 从环境变量获取日志级别（默认DEBUG）
+LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
 
 # 配置日志记录
 logging.basicConfig(level=LOG_LEVEL)
@@ -317,7 +318,12 @@ async def chat(request: ChatRequest, authorization: str = Header(None)):
                     # 收集思考内容
                     if is_thinking and content != " \n":
                         thinking_content.append(content)
-            
+                    # 将收集到的思考内容包裹在 <think> 标记中
+                    if thinking_content:
+                        wrapped_think = "<think>" + "".join(thinking_content) + "</think>"
+                        yield f"data: {json.dumps({'choices': [{'delta': {'content': wrapped_think}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n"
+                        thinking_content = []  # 清空思考内容
+                        
             yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
