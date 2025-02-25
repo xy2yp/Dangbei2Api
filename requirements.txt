@@ -1,4 +1,5 @@
 fastapi
-uvicorn
-httpx
 pydantic
+httpx
+uvicorn
+python-multipart
