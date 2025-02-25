@@ -31,6 +31,9 @@ LOG_LEVEL=DEBUG  日志级别：DEBUG/INFO/WARNING/ERROR/CRITICAL
 docker run -d -p 8000:8000 -e API_KEY=sk-DangBei666 -e MAX_HISTORY=30 -e LOG_LEVEL=INFO --name dangbei2api xy2yp/dangbei2api:latest
 ```
 
+## 已知问题
+思考过程没有被<think>包裹，下午有空摸鱼的时候看看能不能再魔改一下。
+
 ```
 
 ```
