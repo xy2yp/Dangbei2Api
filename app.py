@@ -313,10 +313,10 @@ async def chat(request: ChatRequest, authorization: str = Header(None)):
                     # 处理思考状态标记
                     if content == " \n":
                         is_thinking = True
-                    elif content == "\n \n\n":
+                    elif content == "\n</think>\n\n":
                         is_thinking = False
                     # 收集思考内容
-                    if is_thinking and content != " \n":
+                    if is_thinking and content != "<think>\n":
                         thinking_content.append(content)
                         
             yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
@@ -348,16 +348,16 @@ async def chat(request: ChatRequest, authorization: str = Header(None)):
 
     # 格式化推理内容
     if reasoning_content:
-        start_idx = reasoning_content.find(" ")
-        end_idx = reasoning_content.rfind(" ")
+        start_idx = reasoning_content.find("<think>")
+        end_idx = reasoning_content.rfind("</think>")
         
         if start_idx != -1 and end_idx != -1:
             inner_content = reasoning_content[start_idx + 7:end_idx].strip()
-            inner_content = inner_content.replace(" ", "").replace(" ", "").strip()
-            reasoning_content = f" \n{inner_content}\n "
+            inner_content = inner_content.replace("<think>", "").replace("</think>", "").strip()
+            reasoning_content = f"<think>\n{inner_content}\n</think>"
         else:
-            reasoning_content = reasoning_content.replace(" ", "").replace(" ", "").strip()
-            reasoning_content = f" \n{reasoning_content}\n "
+            reasoning_content = reasoning_content.replace("<think>", "").replace("</think>", "").strip()
+            reasoning_content = f"<think>\n{reasoning_content}\n</think>"
 
     return {
         "id": str(uuid.uuid4()),
