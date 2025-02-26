@@ -16,8 +16,8 @@
 
 - deepseek-r1 模型：`deepseek-r1`
 - deepseek-r1 模型，支持搜索功能：`deepseek-r1-search`
-- deepseek-v1 模型：`deepseek-v1`
-- deepseek-v1 模型，支持搜索功能：`deepseek-v1-search`
+- deepseek-v3 模型：`deepseek-v3`
+- deepseek-v3 模型，支持搜索功能：`deepseek-v3-search`
 
 ## 部署说明
 
