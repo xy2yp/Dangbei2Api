@@ -6,6 +6,10 @@
 
 原贴点击[传送门](https://linux.do/t/topic/444507) 。
 
+感谢linux.do论坛 **@yxmiler** 佬提供的保持上下文的思路。
+
+[传送门](https://linux.do/t/topic/457926/15?u=jiongjiong_jojo)
+
 ## 功能说明
 
 **1.支持模型**
@@ -20,9 +24,14 @@
 **1.本地部署前修改 .env 文件，配置环境变量**
 
 ```plaintext
-API_KEY=sk-your_api_key  #随便写一个
-MAX_HISTORY=10  #最大对话历史记录数（默认30条）
-LOG_LEVEL=INFO  日志级别：DEBUG/INFO/WARNING/ERROR/CRITICAL
+# API密钥配置（替换为自己的密钥）
+API_KEY=sk-your-api-key
+
+# 是否启用跨域
+ENABLE_CORS=True
+
+# 日志级别（可选：DEBUG/INFO/WARNING/ERROR/CRITICAL）
+LOG_LEVEL=DEBUG
 ```
 
 **2.支持Docker部署，可直接使用 Docker 命令**
@@ -33,3 +42,5 @@ docker run -d -p 8000:8000 -e API_KEY=sk-DangBei666 -e LOG_LEVEL=INFO --name dan
 ```
 
 ## 已知问题
+1. 新闻或带URL输出的内容无法解析。
+2. 日志长内容换行输出，应该修改为单行输出。
