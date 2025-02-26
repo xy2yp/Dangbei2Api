@@ -21,14 +21,14 @@ load_dotenv()
 # 获取环境变量
 API_KEY = os.getenv("API_KEY")
 if not API_KEY:
-    raise ValueError("API_KEY not found in .env file")
+    raise ValueError("未在 .env 文件中找到 API_KEY")
 
 ENABLE_CORS = os.getenv("ENABLE_CORS", "True").lower() in ("true", "1", "yes")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
-# 设置日志
+# 设置日志（单行输出，中文）
 logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL, logging.INFO),  # 动态设置日志等级
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler()]
 )
@@ -46,9 +46,9 @@ if ENABLE_CORS:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    logger.info("CORS enabled")
+    logger.info("跨域支持已启用")
 else:
-    logger.info("CORS disabled")
+    logger.info("跨域支持已禁用")
 
 # 定义常量
 api_domain = "https://ai-api.dangbei.net"
@@ -63,22 +63,18 @@ model_to_user_action = {
     "deepseek-v3-search": ["online"],
 }
 
-
 # 工具函数
 def nanoid(size=21):
     url_alphabet = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict"
     return "".join(secrets.choice(url_alphabet) for _ in range(size))
 
-
 def generate_device_id():
     return f"{uuid.uuid4().hex}_{nanoid(20)}"
-
 
 def generate_sign(timestamp: str, payload: dict, nonce: str) -> str:
     payload_str = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
     sign_str = f"{timestamp}{payload_str}{nonce}"
     return hashlib.md5(sign_str.encode("utf-8")).hexdigest().upper()
-
 
 # 创建会话
 async def create_conversation(device_id: str) -> str:
@@ -100,38 +96,34 @@ async def create_conversation(device_id: str) -> str:
     async with httpx.AsyncClient(http2=True) as client:
         response = await client.post(api, json=payload, headers=headers)
         if response.status_code != 200:
-            logger.error(f"Failed to create conversation: HTTP {response.status_code}")
-            raise HTTPException(status_code=500, detail="Failed to create conversation")
+            logger.error(f"创建会话失败：HTTP {response.status_code}")
+            raise HTTPException(status_code=500, detail="创建会话失败")
         data = response.json()
         if data.get("success"):
             conversation_id = data["data"]["conversationId"]
-            logger.info(f"Created new conversation: {conversation_id}")
+            logger.info(f"创建新会话：{conversation_id}")
             return conversation_id
         else:
-            logger.error(f"Failed to create conversation: {data}")
-            raise HTTPException(status_code=500, detail="Failed to create conversation")
-
+            logger.error(f"创建会话失败：{data}")
+            raise HTTPException(status_code=500, detail="创建会话失败")
 
 # 定义授权校验依赖
 api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 
-
 async def check_authorization(authorization: str = Depends(api_key_header)):
     if not authorization:
-        logger.error("Authorization header missing")
-        raise HTTPException(status_code=401, detail="Authorization header missing")
+        logger.error("缺少 Authorization 头部")
+        raise HTTPException(status_code=401, detail="缺少 Authorization 头部")
     api_key = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
     if api_key != API_KEY:
-        logger.error(f"Invalid API key: {api_key}")
-        raise HTTPException(status_code=401, detail="Invalid API key")
+        logger.error(f"无效的 API 密钥：{api_key}")
+        raise HTTPException(status_code=401, detail="无效的 API 密钥")
     return True
-
 
 # 定义请求模型
 class Message(BaseModel):
     role: Literal["system", "user", "assistant"]
     content: str
-
 
 class ChatCompletionRequest(BaseModel):
     model: str
@@ -141,7 +133,6 @@ class ChatCompletionRequest(BaseModel):
     presence_penalty: Optional[float] = 0
     temperature: Optional[float] = 1
     top_p: Optional[float] = 1
-
 
 # 生成流式响应块
 def generate_chunk(id: str, created: int, model: str, delta: dict, finish_reason: Optional[str] = None):
@@ -160,17 +151,33 @@ def generate_chunk(id: str, created: int, model: str, delta: dict, finish_reason
     }
     return f"data: {json.dumps(chunk)}\n\n"
 
-
 # 拼接 messages 数组为字符串
 def concatenate_messages(messages: List[Message]) -> str:
     concatenated = []
     for msg in messages:
-        # 移除 <think> 标签及其内容
         content = re.sub(r"<think>.*?</think>", "", msg.content, flags=re.DOTALL).strip()
-        if content:  # 仅添加非空内容
+        if content:
             concatenated.append(f"{msg.role.capitalize()}: {content}")
     return "\n".join(concatenated)
 
+# 处理 card 类型的内容
+def parse_card_content(content: str) -> str:
+    try:
+        card_data = json.loads(content)
+        if card_data.get("cardType") == "DB-CARD-2":
+            card_info = card_data.get("cardInfo", {})
+            references = []
+            for item in card_info.get("cardItems", []):
+                if item.get("type") == "2002":  # 搜索来源
+                    sources = json.loads(item.get("content", "[]"))
+                    for source in sources:
+                        ref = f"> {source['idIndex']}. [{source['name']}]({source['url']})"
+                        references.append(ref)
+            return "\n\n" + "\n".join(references) if references else "无法解析的新闻内容"
+        return "不支持的 card 类型"
+    except json.JSONDecodeError:
+        logger.warning(f"无法解析 card 内容：{content}")
+        return "无法解析的新闻内容"
 
 # 流式响应函数
 async def stream_response(request: ChatCompletionRequest, device_id: str, conversation_id: str):
@@ -199,11 +206,13 @@ async def stream_response(request: ChatCompletionRequest, device_id: str, conver
     api = f"{api_domain}/ai-search/chatApi/v1/chat"
     id = f"chatcmpl-{uuid.uuid4().hex}"
     created = int(time.time())
-    logger.info(
-        f"Streaming response started for conversation: {conversation_id}, request: {json.dumps(request.dict())}")
+    logger.info(f"开始流式响应，会话ID: {conversation_id}，请求: {json.dumps(request.dict(), ensure_ascii=False)}")
     yield generate_chunk(id, created, request.model, {"role": "assistant"})
     thinking = False
     content_parts = []
+    card_content = None  # 缓存 card 内容
+    is_r1_model = request.model in ["deepseek-r1", "deepseek-r1-search"]
+
     async with httpx.AsyncClient(http2=True) as client:
         async with client.stream(
             "POST",
@@ -213,7 +222,7 @@ async def stream_response(request: ChatCompletionRequest, device_id: str, conver
             timeout=1200,
         ) as response:
             if response.status_code != 200:
-                error_msg = f"Error: Failed to get response, status: {response.status_code}"
+                error_msg = f"错误：无法获取响应，状态码: {response.status_code}"
                 logger.error(error_msg)
                 yield generate_chunk(id, created, request.model, {"content": error_msg}, "stop")
                 return
@@ -239,21 +248,31 @@ async def stream_response(request: ChatCompletionRequest, device_id: str, conver
                                     yield generate_chunk(id, created, request.model, {"content": "</think>"})
                                 content_parts.append(content)
                                 yield generate_chunk(id, created, request.model, {"content": content})
+                            elif data.get("content_type") == "card":
+                                parsed_content = parse_card_content(content)
+                                if is_r1_model:
+                                    card_content = parsed_content  # 缓存 card 内容
+                                else:
+                                    content_parts.append(parsed_content + "\n\n")
+                                    yield generate_chunk(id, created, request.model, {"content": parsed_content + "\n\n"})
                     except json.JSONDecodeError:
-                        logger.warning(f"Failed to parse JSON: {json_str}")
+                        logger.warning(f"无法解析 JSON 数据：{json_str}")
                         continue
             if thinking:
                 content_parts.append("</think>")
                 yield generate_chunk(id, created, request.model, {"content": "</think>"})
+            # 对于 R1 模型，在所有其他内容输出后追加 card 内容
+            if is_r1_model and card_content:
+                content_parts.append(card_content + "\n\n")
+                yield generate_chunk(id, created, request.model, {"content": card_content + "\n\n"})
             yield generate_chunk(id, created, request.model, {}, "stop")
             content = "".join(content_parts)
-            logger.info(f"Streaming response completed for conversation: {conversation_id}, content: {content}")
-
+            logger.info(f"流式响应完成，会话ID: {conversation_id}，内容: {json.dumps(content, ensure_ascii=False)}")
 
 # 主端点
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest, _: None = Depends(check_authorization)):
-    logger.info(f"Received request: {json.dumps(request.dict())}")
+    logger.info(f"接收到请求: {json.dumps(request.dict(), ensure_ascii=False)}")
 
     # 校验并设置默认模型
     if request.model not in supported_models:
@@ -293,7 +312,10 @@ async def chat_completions(request: ChatCompletionRequest, _: None = Depends(che
         }
         api = f"{api_domain}/ai-search/chatApi/v1/chat"
         content_parts = []
+        card_content = None
         thinking = False
+        is_r1_model = request.model in ["deepseek-r1", "deepseek-r1-search"]
+
         async with httpx.AsyncClient(http2=True) as client:
             async with client.stream(
                 "POST",
@@ -303,7 +325,7 @@ async def chat_completions(request: ChatCompletionRequest, _: None = Depends(che
                 timeout=1200,
             ) as response:
                 if response.status_code != 200:
-                    error_msg = f"Failed to get response from API, status: {response.status_code}"
+                    error_msg = f"无法从 API 获取响应，状态码: {response.status_code}"
                     logger.error(error_msg)
                     raise HTTPException(status_code=500, detail=error_msg)
                 async for line in response.aiter_lines():
@@ -324,11 +346,19 @@ async def chat_completions(request: ChatCompletionRequest, _: None = Depends(che
                                         thinking = False
                                         content_parts.append("</think>")
                                     content_parts.append(content)
+                                elif data.get("content_type") == "card":
+                                    parsed_content = parse_card_content(content)
+                                    if is_r1_model:
+                                        card_content = parsed_content  # 缓存 card 内容
+                                    else:
+                                        content_parts.append(parsed_content + "\n\n")
                         except json.JSONDecodeError:
-                            logger.warning(f"Failed to parse JSON: {json_str}")
+                            logger.warning(f"无法解析 JSON 数据：{json_str}")
                             continue
         if thinking:
             content_parts.append("</think>")
+        if is_r1_model and card_content:
+            content_parts.append(card_content + "\n\n")  # 在 R1 模型中将 card 内容放到最后
         content = "".join(content_parts)
 
         response_data = {
@@ -345,14 +375,13 @@ async def chat_completions(request: ChatCompletionRequest, _: None = Depends(che
             ],
             "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         }
-        logger.info(f"Response: {json.dumps(response_data)}")
+        logger.info(f"响应: {json.dumps(response_data, ensure_ascii=False)}")
         return response_data
-
 
 # /models 端点
 @app.get("/v1/models")
 async def list_models(_: None = Depends(check_authorization)):
-    logger.info("Received request for /models")
+    logger.info("接收到 /models 请求")
     models = [
         {
             "id": model,
@@ -366,12 +395,10 @@ async def list_models(_: None = Depends(check_authorization)):
         "object": "list",
         "data": models
     }
-    logger.info(f"Models response: {json.dumps(response_data)}")
+    logger.info(f"模型响应: {json.dumps(response_data, ensure_ascii=False)}")
     return response_data
-
 
 # 启动服务
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)

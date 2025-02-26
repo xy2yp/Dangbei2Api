@@ -42,5 +42,3 @@ docker run -d -p 8000:8000 -e API_KEY=sk-DangBei666 -e LOG_LEVEL=INFO --name dan
 ```
 
 ## 已知问题
-1. 新闻或带URL输出的内容无法解析。
-2. 日志长内容换行输出，应该修改为单行输出。
