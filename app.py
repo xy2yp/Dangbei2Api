@@ -25,6 +25,7 @@ if not API_KEY:
 
 ENABLE_CORS = os.getenv("ENABLE_CORS", "True").lower() in ("true", "1", "yes")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+MAX_CHARS = int(os.getenv("MAX_CHARS", "80000"))  # 从 .env 获取 MAX_CHARS，默认 80000
 
 # 设置日志（单行输出，中文）
 logging.basicConfig(
@@ -160,7 +161,7 @@ def concatenate_messages(messages: List[Message]) -> str:
             concatenated.append(f"{msg.role.capitalize()}: {content}")
     return "\n".join(concatenated)
 
-# 处理 card 类型的内容
+# 处理 card 类型的内容（优化为表格展示）
 def parse_card_content(content: str) -> str:
     try:
         card_data = json.loads(content)
@@ -171,17 +172,67 @@ def parse_card_content(content: str) -> str:
                 if item.get("type") == "2002":  # 搜索来源
                     sources = json.loads(item.get("content", "[]"))
                     for source in sources:
-                        ref = f"> {source['idIndex']}. [{source['name']}]({source['url']})"
-                        references.append(ref)
-            return "\n\n" + "\n".join(references) if references else "无法解析的新闻内容"
+                        id_index = source.get("idIndex", "")
+                        name = source.get("name", "")
+                        url = source.get("url", "")
+                        site_name = source.get("siteName", "")  # 提取 siteName
+                        # 格式化为表格行
+                        row = f"| {id_index} | [{name}]({url}) | {site_name} |"
+                        references.append(row)
+            if references:
+                # 表格头部
+                header = "\n\n| 序号 | 网站URL | 来源 |\n| ---- | ---- | ---- |"
+                # 拼接表格
+                table = header + "\n" + "\n".join(references)
+                return table
+            else:
+                return "无法解析的新闻内容"
         return "不支持的 card 类型"
     except json.JSONDecodeError:
         logger.warning(f"无法解析 card 内容：{content}")
         return "无法解析的新闻内容"
 
+# 按字符数截断 messages，保留上下文连贯性
+def truncate_messages(messages: List[Message], max_chars: int = MAX_CHARS) -> List[Message]:
+    # 计算当前总字符数
+    total_chars = sum(len(msg.content) for msg in messages)
+    if total_chars <= max_chars:
+        return messages
+
+    # 保留所有非 user 和 assistant 的消息
+    other_messages = [msg for msg in messages if msg.role not in ["user", "assistant"]]
+    other_chars = sum(len(msg.content) for msg in other_messages)
+
+    # 可用于 user 和 assistant 的字符数
+    available_chars = max_chars - other_chars
+    if available_chars <= 0:
+        logger.warning("非 user/assistant 消息已超过字符限制，仅保留这些消息")
+        return other_messages
+
+    # 获取 user 和 assistant 消息
+    ua_messages = [msg for msg in messages if msg.role in ["user", "assistant"]]
+    truncated_ua = []
+    current_chars = 0
+
+    # 从最新的消息向前累加，直到超出字符限制
+    for msg in reversed(ua_messages):
+        msg_chars = len(msg.content)
+        if current_chars + msg_chars <= available_chars:
+            truncated_ua.insert(0, msg)  # 从头插入，保持顺序
+            current_chars += msg_chars
+        else:
+            break
+
+    # 合并结果
+    truncated_messages = other_messages + truncated_ua
+    logger.info(f"截断上下文：原始字符数 {total_chars}，截断后字符数 {sum(len(msg.content) for msg in truncated_messages)}，消息数 {len(truncated_messages)}")
+    return truncated_messages
+
 # 流式响应函数
 async def stream_response(request: ChatCompletionRequest, device_id: str, conversation_id: str):
-    concatenated_message = concatenate_messages(request.messages)
+    # 截断 messages
+    truncated_messages = truncate_messages(request.messages)
+    concatenated_message = concatenate_messages(truncated_messages)
     user_action = model_to_user_action[request.model]
     payload = {
         "stream": True,
@@ -261,7 +312,6 @@ async def stream_response(request: ChatCompletionRequest, device_id: str, conver
             if thinking:
                 content_parts.append("</think>")
                 yield generate_chunk(id, created, request.model, {"content": "</think>"})
-            # 对于 R1 模型，在所有其他内容输出后追加 card 内容
             if is_r1_model and card_content:
                 content_parts.append(card_content + "\n\n")
                 yield generate_chunk(id, created, request.model, {"content": card_content + "\n\n"})
@@ -284,11 +334,14 @@ async def chat_completions(request: ChatCompletionRequest, _: None = Depends(che
     # 创建新会话
     conversation_id = await create_conversation(device_id)
 
+    # 截断 messages
+    truncated_messages = truncate_messages(request.messages)
+
     # 处理流式或非流式响应
     if request.stream:
         return StreamingResponse(stream_response(request, device_id, conversation_id), media_type="text/event-stream")
     else:
-        concatenated_message = concatenate_messages(request.messages)
+        concatenated_message = concatenate_messages(truncated_messages)
         user_action = model_to_user_action[request.model]
         payload = {
             "stream": True,
@@ -358,7 +411,7 @@ async def chat_completions(request: ChatCompletionRequest, _: None = Depends(che
         if thinking:
             content_parts.append("</think>")
         if is_r1_model and card_content:
-            content_parts.append(card_content + "\n\n")  # 在 R1 模型中将 card 内容放到最后
+            content_parts.append(card_content + "\n\n")
         content = "".join(content_parts)
 
         response_data = {
