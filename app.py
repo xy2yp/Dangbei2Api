@@ -1,399 +1,404 @@
-# 导入所需库
-import os  # 读取环境变量
-import secrets  # 生成安全随机数
-import time     # 时间处理
-import uuid     # 生成唯一ID
-import hashlib  # 哈希加密
-import json     # JSON数据处理
-import httpx    # 异步HTTP请求
-import logging  # 日志记录
-import random  # 随机数生成
-from typing import AsyncGenerator, List, Dict, Union  # 类型提示
-from pydantic import BaseModel, Field  # 数据验证模型
-from fastapi import FastAPI, HTTPException, Header  # Web框架组件
-from fastapi.responses import StreamingResponse  # 流式响应支持
-from collections import OrderedDict  # 有序字典
-from datetime import datetime  # 日期时间处理
+import uuid
+import time
+import json
+import hashlib
+import secrets
+import re
+import logging
+from fastapi import FastAPI, HTTPException, Depends, Request, Response
+from fastapi.security import APIKeyHeader
+from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Literal, Optional
+import httpx
+from dotenv import load_dotenv
+import os
 
+# 加载 .env 文件
+load_dotenv()
 
-# 配置日志记录（INFO级别）
-#logging.basicConfig(level=logging.INFO)
-#logger = logging.getLogger(__name__)
+# 获取环境变量
+API_KEY = os.getenv("API_KEY")
+if not API_KEY:
+    raise ValueError("未在 .env 文件中找到 API_KEY")
 
-# 从环境变量获取日志级别（默认DEBUG）
-LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
+ENABLE_CORS = os.getenv("ENABLE_CORS", "True").lower() in ("true", "1", "yes")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
-# 配置日志记录
-logging.basicConfig(level=LOG_LEVEL)
+# 设置日志（单行输出，中文）
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler()]
+)
 logger = logging.getLogger(__name__)
 
-# 创建FastAPI应用实例
+# 初始化 FastAPI 应用
 app = FastAPI()
 
-# 配置类：存储应用程序配置参数
-#class Config(BaseModel):
-#     API密钥配置（默认值）
-#    API_KEY: str = Field(
-#        default="skgUXNcLwm0rnnEt55Mg6yp68",
-#        description="用于身份验证的API密钥"
-#    )
-
-class Config(BaseModel):
-    API_KEY: str = Field(
-        default=os.getenv("API_KEY", "sk_gUXNcLwm0rnnEt55Mg8hq88"),
-        description="用于身份验证的API密钥"
+# 根据配置启用跨域
+if ENABLE_CORS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
-    
-    # 最大历史记录数（默认保留10条对话历史）
-#    MAX_HISTORY: int = Field(
-#        default=10,
-#        description="保留的最大对话历史记录数"
-#    )
-    
-    MAX_HISTORY: int = Field(
-        default=int(os.getenv("MAX_HISTORY", 30)),  # 支持环境变量配置
-        description="保留的最大对话历史记录数"
-    )
+    logger.info("跨域支持已启用")
+else:
+    logger.info("跨域支持已禁用")
 
-    # API请求域名配置
-    API_DOMAIN: str = Field(
-        default="https://ai-api.dangbei.net",
-        description="API请求的基础域名"
-    )
-    
-    # 用户代理字符串（模拟浏览器请求）
-    USER_AGENT: str = Field(
-        default="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-        description="HTTP请求的User-Agent头"
-    )
+# 定义常量
+api_domain = "https://ai-api.dangbei.net"
+user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
 
-# 创建全局配置实例
-config = Config()
+# 支持的模型和对应的 userAction 映射
+supported_models = ["deepseek-r1", "deepseek-r1-search", "deepseek-v3", "deepseek-v3-search"]
+model_to_user_action = {
+    "deepseek-r1": ["deep"],
+    "deepseek-r1-search": ["deep", "online"],
+    "deepseek-v3": [],
+    "deepseek-v3-search": ["online"],
+}
 
-# 辅助函数：验证API密钥
-async def verify_api_key(authorization: str = Header(None)):
-    if not authorization:
-        raise HTTPException(status_code=401, detail="缺少API密钥")
-    
-    # 提取Bearer Token格式的API密钥
-    api_key = authorization.replace("Bearer ", "").strip()
-    if api_key != config.API_KEY:
-        raise HTTPException(status_code=401, detail="无效的API密钥")
-    return api_key
+# 工具函数
+def nanoid(size=21):
+    url_alphabet = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict"
+    return "".join(secrets.choice(url_alphabet) for _ in range(size))
 
-# 消息模型：定义对话消息的结构
-class Message(BaseModel):
-    role: str    # 消息角色（如user/assistant）
-    content: str  # 消息内容
+def generate_device_id():
+    return f"{uuid.uuid4().hex}_{nanoid(20)}"
 
-# 聊天请求模型：定义聊天接口的请求参数
-class ChatRequest(BaseModel):
-    model: str           # 使用的模型名称
-    messages: List[Message]  # 消息历史列表
-    stream: bool = False  # 是否启用流式响应
+def generate_sign(timestamp: str, payload: dict, nonce: str) -> str:
+    payload_str = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+    sign_str = f"{timestamp}{payload_str}{nonce}"
+    return hashlib.md5(sign_str.encode("utf-8")).hexdigest().upper()
 
-# 对话历史管理类
-class ChatHistory:
-    def __init__(self):
-        self.current_device_id = None      # 当前设备ID
-        self.current_conversation_id = None  # 当前对话ID
-        self.conversation_count = 0        # 当前设备对话计数
-
-    # 获取或创建设备ID和对话ID
-    def get_or_create_ids(self, force_new=False) -> tuple[str, str]:
-        # 当需要强制新建或达到对话上限时，生成新设备ID
-        if force_new or not self.current_device_id or self.conversation_count >= config.MAX_HISTORY:
-            self.current_device_id = self._generate_device_id()
-            self.current_conversation_id = None
-            self.conversation_count = 0
-
-        return self.current_device_id, self.current_conversation_id
-
-    # 添加新对话记录
-    def add_conversation(self, conversation_id: str):
-        if not self.current_device_id:
-            return
-        self.current_conversation_id = conversation_id
-        self.conversation_count += 1
-
-    # 生成符合特定格式的设备ID（UUID + NanoID组合）
-    def _generate_device_id(self) -> str:
-        uuid_str = uuid.uuid4().hex
-        nanoid_str = ''.join(random.choices(
-            "useandom26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict",
-            k=20
-        ))
-        return f"{uuid_str}_{nanoid_str}"
-
-# 核心处理管道类
-class Pipe:
-    def __init__(self):
-        self.data_prefix = "data:"  # SSE数据前缀
-        self.user_agent = config.USER_AGENT  # 用户代理
-        self.chat_history = ChatHistory()  # 对话历史管理实例
-
-    # 主处理流程（异步生成器）
-    async def pipe(self, body: dict) -> AsyncGenerator[Dict, None]:
-        thinking_state = {"thinking": -1}  # 思考状态跟踪
-        user_message = body["messages"][-1]["content"]  # 获取最新用户消息
-
-        # 检查是否需要清除上下文
-        force_new_context = user_message == "清除上下文"
-
-        # 获取设备ID和对话ID
-        device_id, conversation_id = self.chat_history.get_or_create_ids(force_new_context)
-
-        # 如果需要新建对话
-        if not conversation_id:
-            conversation_id = await self._create_conversation(device_id)
-            if not conversation_id:
-                yield {"error": "无法创建新对话"}
-                return
-            self.chat_history.add_conversation(conversation_id)
-
-        # 处理清除上下文指令
-        if force_new_context:
-            yield {"choices": [{"delta": {"content": "上下文已清除，开始新的对话。"}, "finish_reason": None}]}
-            yield {"choices": [{"delta": {"meta": {
-                "device_id": device_id,
-                "conversation_id": conversation_id
-            }}, "finish_reason": None}]}
-            return
-
-        # 确定用户操作类型（是否需要联网）
-        user_action = "deep"
-        if user_message.rstrip().endswith(("@online", "@联网")):
-            user_action = "deep,online"
-            user_message = user_message.rstrip().rsplit("@", 1)[0].rstrip()
-
-        # 构建请求负载
-        payload = {
-            "stream": True,
-            "botCode": "AI_SEARCH",
-            "userAction": user_action,
-            "model": "deepseek",
-            "conversationId": conversation_id,
-            "question": user_message,
-        }
-
-        # 生成请求签名所需参数
-        timestamp = str(int(time.time()))
-        nonce = self._nanoid(21)
-        sign = self._generate_sign(timestamp, payload, nonce)
-
-        # 构建请求头
-        headers = {
-            "Origin": "https://ai.dangbei.com",
-            "Referer": "https://ai.dangbei.com/",
-            "User-Agent": self.user_agent,
-            "deviceId": device_id,
-            "nonce": nonce,
-            "sign": sign,
-            "timestamp": timestamp,
-        }
-
-        # 构建完整API地址
-        api = f"{config.API_DOMAIN}/ai-search/chatApi/v1/chat"
-
-        try:
-            # 发起异步HTTP流式请求
-            async with httpx.AsyncClient() as client:
-                async with client.stream("POST", api, json=payload, headers=headers, timeout=1200) as response:
-                    if response.status_code != 200:
-                        error = await response.aread()
-                        yield {"error": self._format_error(response.status_code, error)}
-                        return
-
-                    # 处理流式响应
-                    async for line in response.aiter_lines():
-                        if not line.startswith(self.data_prefix):
-                            continue
-
-                        json_str = line[len(self.data_prefix):]
-                        try:
-                            data = json.loads(json_str)
-                        except json.JSONDecodeError as e:
-                            yield {"error": f"JSON解析错误: {str(e)}", "data": json_str}
-                            return
-
-                        # 处理回答类型数据
-                        if data.get("type") == "answer":
-                            content = data.get("content")
-                            content_type = data.get("content_type")
-                            
-                            # 处理思考状态转换
-                            if thinking_state["thinking"] == -1 and content_type == "thinking":
-                                thinking_state["thinking"] = 0
-                                yield {"choices": [{"delta": {"content": " \n"}, "finish_reason": None}]}
-                            elif thinking_state["thinking"] == 0 and content_type == "text":
-                                thinking_state["thinking"] = 1
-                                yield {"choices": [{"delta": {"content": "\n \n\n"}, "finish_reason": None}]}
-                            
-                            if content:
-                                yield {"choices": [{"delta": {"content": content}, "finish_reason": None}]}
-
-                    # 返回元数据
-                    yield {"choices": [{"delta": {"meta": {
-                        "device_id": device_id,
-                        "conversation_id": conversation_id
-                    }}, "finish_reason": None}]}
-
-        except Exception as e:
-            logger.error(f"管道处理错误: {str(e)}")
-            yield {"error": self._format_exception(e)}
-
-    # 格式化HTTP错误信息
-    def _format_error(self, status_code: int, error: bytes) -> str:
-        error_str = error.decode(errors="ignore") if isinstance(error, bytes) else error
-        return json.dumps({"error": f"HTTP {status_code}: {error_str}"}, ensure_ascii=False)
-
-    # 格式化异常信息
-    def _format_exception(self, e: Exception) -> str:
-        return json.dumps({"error": f"{type(e).__name__}: {str(e)}"}, ensure_ascii=False)
-
-    # 生成NanoID（自定义字母表）
-    def _nanoid(self, size=21) -> str:
-        url_alphabet = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict"
-        random_bytes = secrets.token_bytes(size)
-        return "".join([url_alphabet[b & 63] for b in reversed(random_bytes)])
-
-    # 生成请求签名（MD5加密）
-    def _generate_sign(self, timestamp: str, payload: dict, nonce: str) -> str:
-        payload_str = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
-        sign_str = f"{timestamp}{payload_str}{nonce}"
-        return hashlib.md5(sign_str.encode("utf-8")).hexdigest().upper()
-
-    # 创建新对话会话
-    async def _create_conversation(self, device_id: str) -> str:
-        payload = {"botCode": "AI_SEARCH"}
-        timestamp = str(int(time.time()))
-        nonce = self._nanoid(21)
-        sign = self._generate_sign(timestamp, payload, nonce)
-
-        headers = {
-            "Origin": "https://ai.dangbei.com",
-            "Referer": "https://ai.dangbei.com/",
-            "User-Agent": self.user_agent,
-            "deviceId": device_id,
-            "nonce": nonce,
-            "sign": sign,
-            "timestamp": timestamp,
-        }
-
-        api = f"{config.API_DOMAIN}/ai-search/conversationApi/v1/create"
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(api, json=payload, headers=headers)
-                if response.status_code == 200:
-                    data = response.json()
-                    if data.get("success"):
-                        return data["data"]["conversationId"]
-        except Exception as e:
-            logger.error(f"创建对话失败: {str(e)}")
-        return None
-
-# 创建管道实例
-pipe = Pipe()
-
-# 聊天接口端点（兼容OpenAI API）
-@app.post("/v1/chat/completions")
-async def chat(request: ChatRequest, authorization: str = Header(None)):
-    await verify_api_key(authorization)
-
-    # 流式响应生成器
-    async def response_generator():
-        thinking_content = []
-        is_thinking = False
-        
-        async for chunk in pipe.pipe(request.model_dump()):
-            if "choices" in chunk and chunk["choices"]:
-                delta = chunk["choices"][0]["delta"]
-                if "content" in delta:
-                    content = delta["content"]
-                    # 处理思考状态标记
-                    if content == " \n":
-                        is_thinking = True
-                    elif content == "\n</think>\n\n":
-                        is_thinking = False
-                    # 收集思考内容
-                    if is_thinking and content != "<think>\n":
-                        thinking_content.append(content)
-                        
-            yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-        yield "data: [DONE]\n\n"
-
-    # 根据请求类型返回不同响应
-    if request.stream:
-        return StreamingResponse(response_generator(), media_type="text/event-stream")
-
-    # 非流式响应处理
-    content = ""
-    meta = None
-    try:
-        async for chunk in pipe.pipe(request.model_dump()):
-            if "choices" in chunk and chunk["choices"]:
-                delta = chunk["choices"][0]["delta"]
-                if "content" in delta:
-                    content += delta["content"]
-                if "meta" in delta:
-                    meta = delta["meta"]
-    except Exception as e:
-        logger.error(f"聊天请求处理错误: {str(e)}")
-        raise HTTPException(status_code=500, detail="内部服务器错误")
-
-    # 处理内容格式
-    parts = content.split("\n\n\n", 1)
-    reasoning_content = parts[0] if len(parts) > 0 else ""
-    content = parts[1] if len(parts) > 1 else ""
-
-    # 格式化推理内容
-    if reasoning_content:
-        start_idx = reasoning_content.find("<think>")
-        end_idx = reasoning_content.rfind("</think>")
-        
-        if start_idx != -1 and end_idx != -1:
-            inner_content = reasoning_content[start_idx + 7:end_idx].strip()
-            inner_content = inner_content.replace("<think>", "").replace("</think>", "").strip()
-            reasoning_content = f"<think>\n{inner_content}\n</think>"
-        else:
-            reasoning_content = reasoning_content.replace("<think>", "").replace("</think>", "").strip()
-            reasoning_content = f"<think>\n{reasoning_content}\n</think>"
-
-    return {
-        "id": str(uuid.uuid4()),
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": request.model,
-        "choices": [{
-            "message": {
-                "role": "assistant",
-                "reasoning_content": reasoning_content,
-                "content": content,
-                "meta": meta
-            },
-            "finish_reason": "stop"
-        }]
+# 创建会话
+async def create_conversation(device_id: str) -> str:
+    payload = {"botCode": "AI_SEARCH"}
+    timestamp = str(int(time.time()))
+    nonce = nanoid(21)
+    sign = generate_sign(timestamp, payload, nonce)
+    headers = {
+        "Origin": "https://ai.dangbei.com",
+        "Referer": "https://ai.dangbei.com/",
+        "User-Agent": user_agent,
+        "deviceId": device_id,
+        "nonce": nonce,
+        "sign": sign,
+        "timestamp": timestamp,
+        "content-type": "application/json",
     }
+    api = f"{api_domain}/ai-search/conversationApi/v1/create"
+    async with httpx.AsyncClient(http2=True) as client:
+        response = await client.post(api, json=payload, headers=headers)
+        if response.status_code != 200:
+            logger.error(f"创建会话失败：HTTP {response.status_code}")
+            raise HTTPException(status_code=500, detail="创建会话失败")
+        data = response.json()
+        if data.get("success"):
+            conversation_id = data["data"]["conversationId"]
+            logger.info(f"创建新会话：{conversation_id}")
+            return conversation_id
+        else:
+            logger.error(f"创建会话失败：{data}")
+            raise HTTPException(status_code=500, detail="创建会话失败")
 
-# 模型信息接口
-@app.get("/v1/models")
-async def get_models(authorization: str = Header(None)):
-    await verify_api_key(authorization)
-    
-    current_time = int(time.time())
-    return {
-        "object": "list",
-        "data": [
+# 定义授权校验依赖
+api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
+
+async def check_authorization(authorization: str = Depends(api_key_header)):
+    if not authorization:
+        logger.error("缺少 Authorization 头部")
+        raise HTTPException(status_code=401, detail="缺少 Authorization 头部")
+    api_key = authorization.replace("Bearer ", "") if authorization.startswith("Bearer ") else authorization
+    if api_key != API_KEY:
+        logger.error(f"无效的 API 密钥：{api_key}")
+        raise HTTPException(status_code=401, detail="无效的 API 密钥")
+    return True
+
+# 定义请求模型
+class Message(BaseModel):
+    role: Literal["system", "user", "assistant"]
+    content: str
+
+class ChatCompletionRequest(BaseModel):
+    model: str
+    messages: List[Message]
+    stream: Optional[bool] = False
+    frequency_penalty: Optional[float] = 0
+    presence_penalty: Optional[float] = 0
+    temperature: Optional[float] = 1
+    top_p: Optional[float] = 1
+
+# 生成流式响应块
+def generate_chunk(id: str, created: int, model: str, delta: dict, finish_reason: Optional[str] = None):
+    chunk = {
+        "id": id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": model,
+        "choices": [
             {
-                "id": "deepseek",
-                "object": "model",
-                "created": current_time,
-                "owned_by": "library"
+                "index": 0,
+                "delta": delta,
+                "finish_reason": finish_reason
             }
         ]
     }
+    return f"data: {json.dumps(chunk)}\n\n"
 
-# 启动服务（开发模式）
+# 拼接 messages 数组为字符串
+def concatenate_messages(messages: List[Message]) -> str:
+    concatenated = []
+    for msg in messages:
+        content = re.sub(r"<think>.*?</think>", "", msg.content, flags=re.DOTALL).strip()
+        if content:
+            concatenated.append(f"{msg.role.capitalize()}: {content}")
+    return "\n".join(concatenated)
+
+# 处理 card 类型的内容
+def parse_card_content(content: str) -> str:
+    try:
+        card_data = json.loads(content)
+        if card_data.get("cardType") == "DB-CARD-2":
+            card_info = card_data.get("cardInfo", {})
+            references = []
+            for item in card_info.get("cardItems", []):
+                if item.get("type") == "2002":  # 搜索来源
+                    sources = json.loads(item.get("content", "[]"))
+                    for source in sources:
+                        ref = f"> {source['idIndex']}. [{source['name']}]({source['url']})"
+                        references.append(ref)
+            return "\n\n" + "\n".join(references) if references else "无法解析的新闻内容"
+        return "不支持的 card 类型"
+    except json.JSONDecodeError:
+        logger.warning(f"无法解析 card 内容：{content}")
+        return "无法解析的新闻内容"
+
+# 流式响应函数
+async def stream_response(request: ChatCompletionRequest, device_id: str, conversation_id: str):
+    concatenated_message = concatenate_messages(request.messages)
+    user_action = model_to_user_action[request.model]
+    payload = {
+        "stream": True,
+        "botCode": "AI_SEARCH",
+        "userAction": ",".join(user_action),
+        "model": "deepseek",
+        "conversationId": conversation_id,
+        "question": concatenated_message,
+    }
+    timestamp = str(int(time.time()))
+    nonce = nanoid(21)
+    sign = generate_sign(timestamp, payload, nonce)
+    headers = {
+        "Origin": "https://ai.dangbei.com",
+        "Referer": "https://ai.dangbei.com/",
+        "User-Agent": user_agent,
+        "deviceId": device_id,
+        "nonce": nonce,
+        "sign": sign,
+        "timestamp": timestamp,
+    }
+    api = f"{api_domain}/ai-search/chatApi/v1/chat"
+    id = f"chatcmpl-{uuid.uuid4().hex}"
+    created = int(time.time())
+    logger.info(f"开始流式响应，会话ID: {conversation_id}，请求: {json.dumps(request.dict(), ensure_ascii=False)}")
+    yield generate_chunk(id, created, request.model, {"role": "assistant"})
+    thinking = False
+    content_parts = []
+    card_content = None  # 缓存 card 内容
+    is_r1_model = request.model in ["deepseek-r1", "deepseek-r1-search"]
+
+    async with httpx.AsyncClient(http2=True) as client:
+        async with client.stream(
+            "POST",
+            api,
+            json=payload,
+            headers=headers,
+            timeout=1200,
+        ) as response:
+            if response.status_code != 200:
+                error_msg = f"错误：无法获取响应，状态码: {response.status_code}"
+                logger.error(error_msg)
+                yield generate_chunk(id, created, request.model, {"content": error_msg}, "stop")
+                return
+            async for line in response.aiter_lines():
+                if line.startswith("data:"):
+                    json_str = line[5:]
+                    try:
+                        data = json.loads(json_str)
+                        content = data.get("content") or ""
+                        if content:
+                            content = re.sub(r"<details>.*?</details>", "", content, flags=re.DOTALL)
+                            if data.get("content_type") == "thinking":
+                                if not thinking:
+                                    thinking = True
+                                    content_parts.append("<think>")
+                                    yield generate_chunk(id, created, request.model, {"content": "<think>"})
+                                content_parts.append(content)
+                                yield generate_chunk(id, created, request.model, {"content": content})
+                            elif data.get("content_type") == "text":
+                                if thinking:
+                                    thinking = False
+                                    content_parts.append("</think>")
+                                    yield generate_chunk(id, created, request.model, {"content": "</think>"})
+                                content_parts.append(content)
+                                yield generate_chunk(id, created, request.model, {"content": content})
+                            elif data.get("content_type") == "card":
+                                parsed_content = parse_card_content(content)
+                                if is_r1_model:
+                                    card_content = parsed_content  # 缓存 card 内容
+                                else:
+                                    content_parts.append(parsed_content + "\n\n")
+                                    yield generate_chunk(id, created, request.model, {"content": parsed_content + "\n\n"})
+                    except json.JSONDecodeError:
+                        logger.warning(f"无法解析 JSON 数据：{json_str}")
+                        continue
+            if thinking:
+                content_parts.append("</think>")
+                yield generate_chunk(id, created, request.model, {"content": "</think>"})
+            # 对于 R1 模型，在所有其他内容输出后追加 card 内容
+            if is_r1_model and card_content:
+                content_parts.append(card_content + "\n\n")
+                yield generate_chunk(id, created, request.model, {"content": card_content + "\n\n"})
+            yield generate_chunk(id, created, request.model, {}, "stop")
+            content = "".join(content_parts)
+            logger.info(f"流式响应完成，会话ID: {conversation_id}，内容: {json.dumps(content, ensure_ascii=False)}")
+
+# 主端点
+@app.post("/v1/chat/completions")
+async def chat_completions(request: ChatCompletionRequest, _: None = Depends(check_authorization)):
+    logger.info(f"接收到请求: {json.dumps(request.dict(), ensure_ascii=False)}")
+
+    # 校验并设置默认模型
+    if request.model not in supported_models:
+        request.model = "deepseek-r1"
+
+    # 生成 Device ID
+    device_id = generate_device_id()
+
+    # 创建新会话
+    conversation_id = await create_conversation(device_id)
+
+    # 处理流式或非流式响应
+    if request.stream:
+        return StreamingResponse(stream_response(request, device_id, conversation_id), media_type="text/event-stream")
+    else:
+        concatenated_message = concatenate_messages(request.messages)
+        user_action = model_to_user_action[request.model]
+        payload = {
+            "stream": True,
+            "botCode": "AI_SEARCH",
+            "userAction": ",".join(user_action),
+            "model": "deepseek",
+            "conversationId": conversation_id,
+            "question": concatenated_message,
+        }
+        timestamp = str(int(time.time()))
+        nonce = nanoid(21)
+        sign = generate_sign(timestamp, payload, nonce)
+        headers = {
+            "Origin": "https://ai.dangbei.com",
+            "Referer": "https://ai.dangbei.com/",
+            "User-Agent": user_agent,
+            "deviceId": device_id,
+            "nonce": nonce,
+            "sign": sign,
+            "timestamp": timestamp,
+        }
+        api = f"{api_domain}/ai-search/chatApi/v1/chat"
+        content_parts = []
+        card_content = None
+        thinking = False
+        is_r1_model = request.model in ["deepseek-r1", "deepseek-r1-search"]
+
+        async with httpx.AsyncClient(http2=True) as client:
+            async with client.stream(
+                "POST",
+                api,
+                json=payload,
+                headers=headers,
+                timeout=1200,
+            ) as response:
+                if response.status_code != 200:
+                    error_msg = f"无法从 API 获取响应，状态码: {response.status_code}"
+                    logger.error(error_msg)
+                    raise HTTPException(status_code=500, detail=error_msg)
+                async for line in response.aiter_lines():
+                    if line.startswith("data:"):
+                        json_str = line[5:]
+                        try:
+                            data = json.loads(json_str)
+                            content = data.get("content") or ""
+                            if content:
+                                content = re.sub(r"<details>.*?</details>", "", content, flags=re.DOTALL)
+                                if data.get("content_type") == "thinking":
+                                    if not thinking:
+                                        thinking = True
+                                        content_parts.append("<think>")
+                                    content_parts.append(content)
+                                elif data.get("content_type") == "text":
+                                    if thinking:
+                                        thinking = False
+                                        content_parts.append("</think>")
+                                    content_parts.append(content)
+                                elif data.get("content_type") == "card":
+                                    parsed_content = parse_card_content(content)
+                                    if is_r1_model:
+                                        card_content = parsed_content  # 缓存 card 内容
+                                    else:
+                                        content_parts.append(parsed_content + "\n\n")
+                        except json.JSONDecodeError:
+                            logger.warning(f"无法解析 JSON 数据：{json_str}")
+                            continue
+        if thinking:
+            content_parts.append("</think>")
+        if is_r1_model and card_content:
+            content_parts.append(card_content + "\n\n")  # 在 R1 模型中将 card 内容放到最后
+        content = "".join(content_parts)
+
+        response_data = {
+            "id": f"chatcmpl-{uuid.uuid4().hex}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": request.model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": content},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        }
+        logger.info(f"响应: {json.dumps(response_data, ensure_ascii=False)}")
+        return response_data
+
+# /models 端点
+@app.get("/v1/models")
+async def list_models(_: None = Depends(check_authorization)):
+    logger.info("接收到 /models 请求")
+    models = [
+        {
+            "id": model,
+            "object": "model",
+            "created": int(time.time()),
+            "owned_by": "dangbei"
+        }
+        for model in supported_models
+    ]
+    response_data = {
+        "object": "list",
+        "data": models
+    }
+    logger.info(f"模型响应: {json.dumps(response_data, ensure_ascii=False)}")
+    return response_data
+
+# 启动服务
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

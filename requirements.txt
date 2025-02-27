@@ -1,5 +1,7 @@
 fastapi
 pydantic
-httpx
+httpx[http2]
 uvicorn
 python-multipart
+uuid
+python-dotenv
