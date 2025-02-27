@@ -8,7 +8,7 @@
 
 感谢linux.do论坛 **@yxmiler** 佬提供的保持上下文的思路。
 
-[传送门](https://linux.do/t/topic/457926/15?u=jiongjiong_jojo)
+原贴点击[传送门](https://linux.do/t/topic/457926/15?u=jiongjiong_jojo) 。
 
 ## 功能说明
 
@@ -41,7 +41,7 @@ LOG_LEVEL=DEBUG
 
 ```bash
 docker build -t dangbei2api:latest .
-docker run -d -p 8000:8000 -e API_KEY=sk-DangBei666 -e LOG_LEVEL=INFO --name dangbei2api dangbei2api:latest
+docker run -d -p 8000:8000 -e API_KEY=sk-DangBei666 -e LOG_LEVEL=INFO --name dangbei2api xy2yp/dangbei2api:latest
 ```
 
-## 已知问题
+
