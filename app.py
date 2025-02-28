@@ -17,7 +17,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, HTTPException, Depends
 
-# 加载 .env 文件
+# 加载 .env 文件 
 load_dotenv()
 
 # 获取环境变量
@@ -254,10 +254,11 @@ def truncate_messages(messages: List[Message], max_chars: int = MAX_CHARS) -> Li
     # 合并结果
     truncated_messages = other_messages + truncated_ua
     logger.info(
-        f"截断上下文：原始字符数 {total_chars}，截断后字符数 {sum(len(msg.content) for msg in truncated_messages)}，消息数 {len(truncated_messages)}")
+        f"截断上下文：原始字符数 {total_chars}，截断后字符数 {sum(len(msg.content) for msg in truncated_messages)}，消息数 {len(truncated_messages)}"
+    )
     return truncated_messages
 
-
+  
 # 流式响应函数
 async def stream_response(request: ChatCompletionRequest, device_id: str, conversation_id: str):
     # 截断 messages
