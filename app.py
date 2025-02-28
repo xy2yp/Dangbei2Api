@@ -130,7 +130,7 @@ async def create_conversation(device_id: str) -> str:
         data = response.json()
         if data.get("success"):
             conversation_id = data["data"]["conversationId"]
-            logger.info(f"创建新会话：{conversation_id}")
+            logger.info(f"[创建新会话] conversation_id: {conversation_id}, UA: {headers['User-Agent']}")
             return conversation_id
         else:
             logger.error(f"创建会话失败：{data}")
@@ -252,7 +252,6 @@ def truncate_messages(messages: List[Message], max_chars: int = MAX_CHARS) -> Li
     return truncated_messages
 
 
-# 提取重复的请求准备逻辑
 def prepare_request_payload(request: ChatCompletionRequest, device_id: str, conversation_id: str):
     truncated_messages = truncate_messages(request.messages)
     concatenated_message = concatenate_messages(truncated_messages)
@@ -286,7 +285,11 @@ async def stream_response(request: ChatCompletionRequest, device_id: str, conver
     api = f"{api_domain}/ai-search/chatApi/v1/chat"
     _id = f"chatcmpl-{uuid.uuid4().hex}"  # noqa
     created = int(time.time())
-    logger.info(f"开始流式响应，会话ID: {conversation_id}，请求: {json.dumps(request.model_dump(), ensure_ascii=False)}")
+    logger.info(
+        f"开始流式响应，会话ID: {conversation_id}，"
+        f"UA：{headers['User-Agent']}，"
+        f"请求: {json.dumps(payload, ensure_ascii=False)}"
+    )
     yield generate_chunk(_id, created, request.model, {"role": "assistant"})
     thinking = False
     content_parts = []
@@ -353,6 +356,7 @@ async def chat_completions(request: ChatCompletionRequest, _: None = Depends(che
         request.model = "deepseek-r1"
 
     device_id = generate_device_id()
+    print(f"device_id: {device_id}")
     conversation_id = await create_conversation(device_id)
 
     if request.stream:
@@ -364,7 +368,11 @@ async def chat_completions(request: ChatCompletionRequest, _: None = Depends(che
     card_content = None
     thinking = False
     is_r1_model = request.model in ["deepseek-r1", "deepseek-r1-search"]
-
+    logger.info(
+        f"开始非流式响应，会话ID: {conversation_id}，"
+        f"UA: {headers['User-Agent']}，"
+        f"请求: {json.dumps(payload, ensure_ascii=False)}"
+    )
     async with httpx.AsyncClient(http2=True) as client:
         async with client.stream("POST", api, json=payload, headers=headers, timeout=1200) as response:
             if response.status_code != 200:
