@@ -38,6 +38,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# 设置 httpx 和 httpcore 的日志级别为 INFO，屏蔽 DEBUG 输出
+logging.getLogger("httpx").setLevel(logging.ERROR)
+logging.getLogger("httpcore").setLevel(logging.ERROR)
+
 # 初始化 FastAPI 应用
 app = FastAPI()
 
