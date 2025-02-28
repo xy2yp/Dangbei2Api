@@ -1,19 +1,21 @@
+import re
+import os
 import uuid
 import time
 import json
+import httpx
+import uvicorn
 import hashlib
 import secrets
-import re
 import logging
-from fastapi import FastAPI, HTTPException, Depends, Request, Response
-from fastapi.security import APIKeyHeader
-from fastapi.responses import StreamingResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Literal, Optional
-import httpx
 from dotenv import load_dotenv
-import os
+from fake_useragent import UserAgent
+from typing import List, Literal, Optional
+from fastapi.security import APIKeyHeader
+from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException, Depends
 
 # 加载 .env 文件
 load_dotenv()
@@ -26,6 +28,7 @@ if not API_KEY:
 ENABLE_CORS = os.getenv("ENABLE_CORS", "True").lower() in ("true", "1", "yes")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 MAX_CHARS = int(os.getenv("MAX_CHARS", "80000"))  # 从 .env 获取 MAX_CHARS，默认 80000
+RANDOM_UA = os.getenv("RANDOM_UA", "False").lower() in ("true", "1", "yes")  # 是否随机UA，默认 False
 
 # 设置日志（单行输出，中文）
 logging.basicConfig(
@@ -53,7 +56,8 @@ else:
 
 # 定义常量
 api_domain = "https://ai-api.dangbei.net"
-user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+default_user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+ua = UserAgent()  # 初始化 fake-useragent 的 UserAgent 对象
 
 # 支持的模型和对应的 userAction 映射
 supported_models = ["deepseek-r1", "deepseek-r1-search", "deepseek-v3", "deepseek-v3-search"]
@@ -64,18 +68,34 @@ model_to_user_action = {
     "deepseek-v3-search": ["online"],
 }
 
+# 用于存储 device_id 对应的 User-Agent
+device_ua_map = {}
+
+
 # 工具函数
 def nanoid(size=21):
     url_alphabet = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict"
     return "".join(secrets.choice(url_alphabet) for _ in range(size))
 
+
 def generate_device_id():
     return f"{uuid.uuid4().hex}_{nanoid(20)}"
+
+
+def get_user_agent(device_id: str) -> str:
+    """根据 device_id 返回 User-Agent，保证同一会话使用相同 UA"""
+    if not RANDOM_UA:
+        return default_user_agent
+    if device_id not in device_ua_map:
+        device_ua_map[device_id] = ua.random  # 为新 device_id 生成随机 UA
+    return device_ua_map[device_id]
+
 
 def generate_sign(timestamp: str, payload: dict, nonce: str) -> str:
     payload_str = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
     sign_str = f"{timestamp}{payload_str}{nonce}"
     return hashlib.md5(sign_str.encode("utf-8")).hexdigest().upper()
+
 
 # 创建会话
 async def create_conversation(device_id: str) -> str:
@@ -86,7 +106,7 @@ async def create_conversation(device_id: str) -> str:
     headers = {
         "Origin": "https://ai.dangbei.com",
         "Referer": "https://ai.dangbei.com/",
-        "User-Agent": user_agent,
+        "User-Agent": get_user_agent(device_id),  # 使用与 device_id 绑定的 UA
         "deviceId": device_id,
         "nonce": nonce,
         "sign": sign,
@@ -108,8 +128,10 @@ async def create_conversation(device_id: str) -> str:
             logger.error(f"创建会话失败：{data}")
             raise HTTPException(status_code=500, detail="创建会话失败")
 
+
 # 定义授权校验依赖
 api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
+
 
 async def check_authorization(authorization: str = Depends(api_key_header)):
     if not authorization:
@@ -121,10 +143,12 @@ async def check_authorization(authorization: str = Depends(api_key_header)):
         raise HTTPException(status_code=401, detail="无效的 API 密钥")
     return True
 
+
 # 定义请求模型
 class Message(BaseModel):
     role: Literal["system", "user", "assistant"]
     content: str
+
 
 class ChatCompletionRequest(BaseModel):
     model: str
@@ -134,6 +158,7 @@ class ChatCompletionRequest(BaseModel):
     presence_penalty: Optional[float] = 0
     temperature: Optional[float] = 1
     top_p: Optional[float] = 1
+
 
 # 生成流式响应块
 def generate_chunk(id: str, created: int, model: str, delta: dict, finish_reason: Optional[str] = None):
@@ -152,6 +177,7 @@ def generate_chunk(id: str, created: int, model: str, delta: dict, finish_reason
     }
     return f"data: {json.dumps(chunk)}\n\n"
 
+
 # 拼接 messages 数组为字符串
 def concatenate_messages(messages: List[Message]) -> str:
     concatenated = []
@@ -160,6 +186,7 @@ def concatenate_messages(messages: List[Message]) -> str:
         if content:
             concatenated.append(f"{msg.role.capitalize()}: {content}")
     return "\n".join(concatenated)
+
 
 # 处理 card 类型的内容（优化为表格展示）
 def parse_card_content(content: str) -> str:
@@ -191,6 +218,7 @@ def parse_card_content(content: str) -> str:
     except json.JSONDecodeError:
         logger.warning(f"无法解析 card 内容：{content}")
         return "无法解析的新闻内容"
+
 
 # 按字符数截断 messages，保留上下文连贯性
 def truncate_messages(messages: List[Message], max_chars: int = MAX_CHARS) -> List[Message]:
@@ -225,8 +253,10 @@ def truncate_messages(messages: List[Message], max_chars: int = MAX_CHARS) -> Li
 
     # 合并结果
     truncated_messages = other_messages + truncated_ua
-    logger.info(f"截断上下文：原始字符数 {total_chars}，截断后字符数 {sum(len(msg.content) for msg in truncated_messages)}，消息数 {len(truncated_messages)}")
+    logger.info(
+        f"截断上下文：原始字符数 {total_chars}，截断后字符数 {sum(len(msg.content) for msg in truncated_messages)}，消息数 {len(truncated_messages)}")
     return truncated_messages
+
 
 # 流式响应函数
 async def stream_response(request: ChatCompletionRequest, device_id: str, conversation_id: str):
@@ -248,7 +278,7 @@ async def stream_response(request: ChatCompletionRequest, device_id: str, conver
     headers = {
         "Origin": "https://ai.dangbei.com",
         "Referer": "https://ai.dangbei.com/",
-        "User-Agent": user_agent,
+        "User-Agent": get_user_agent(device_id),  # 使用与 device_id 绑定的 UA
         "deviceId": device_id,
         "nonce": nonce,
         "sign": sign,
@@ -305,7 +335,8 @@ async def stream_response(request: ChatCompletionRequest, device_id: str, conver
                                     card_content = parsed_content  # 缓存 card 内容
                                 else:
                                     content_parts.append(parsed_content + "\n\n")
-                                    yield generate_chunk(id, created, request.model, {"content": parsed_content + "\n\n"})
+                                    yield generate_chunk(id, created, request.model,
+                                                         {"content": parsed_content + "\n\n"})
                     except json.JSONDecodeError:
                         logger.warning(f"无法解析 JSON 数据：{json_str}")
                         continue
@@ -318,6 +349,7 @@ async def stream_response(request: ChatCompletionRequest, device_id: str, conver
             yield generate_chunk(id, created, request.model, {}, "stop")
             content = "".join(content_parts)
             logger.info(f"流式响应完成，会话ID: {conversation_id}，内容: {json.dumps(content, ensure_ascii=False)}")
+
 
 # 主端点
 @app.post("/v1/chat/completions")
@@ -357,7 +389,7 @@ async def chat_completions(request: ChatCompletionRequest, _: None = Depends(che
         headers = {
             "Origin": "https://ai.dangbei.com",
             "Referer": "https://ai.dangbei.com/",
-            "User-Agent": user_agent,
+            "User-Agent": get_user_agent(device_id),  # 使用与 device_id 绑定的 UA
             "deviceId": device_id,
             "nonce": nonce,
             "sign": sign,
@@ -431,6 +463,7 @@ async def chat_completions(request: ChatCompletionRequest, _: None = Depends(che
         logger.info(f"响应: {json.dumps(response_data, ensure_ascii=False)}")
         return response_data
 
+
 # /models 端点
 @app.get("/v1/models")
 async def list_models(_: None = Depends(check_authorization)):
@@ -451,7 +484,7 @@ async def list_models(_: None = Depends(check_authorization)):
     logger.info(f"模型响应: {json.dumps(response_data, ensure_ascii=False)}")
     return response_data
 
+
 # 启动服务
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
