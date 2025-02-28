@@ -50,8 +50,7 @@ docker run -d -p 8000:8000 -e API_KEY=sk-DangBei666 -e MAX_CHARS=99999  -eENABLE
   - 修改新闻等`card内容`展示方式为表格
 - **优化上下文管理**
   - 支持`主动截断`上下文
-  - 仅处理user和assistant的内容，保留其他内容
-  - 可通过变量配置
+  - 仅处理user和assistant的内容，保留其他内容，可通过变量配置
 
 ---
 
