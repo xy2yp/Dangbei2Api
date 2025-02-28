@@ -68,12 +68,21 @@ default_user_agent = (
 ua = UserAgent()  # 初始化 fake-useragent 的 UserAgent 对象
 
 # 支持的模型和对应的 userAction 映射
-supported_models = ["deepseek-r1", "deepseek-r1-search", "deepseek-v3", "deepseek-v3-search"]
+supported_models = [
+    "deepseek-r1", "deepseek-r1-search",
+    "deepseek-v3", "deepseek-v3-search",
+    "doubao", "doubao-search",  # noqa
+    "qwen", "qwen-search",
+]
 model_to_user_action = {
-    "deepseek-r1": ["deep"],
-    "deepseek-r1-search": ["deep", "online"],
-    "deepseek-v3": [],
-    "deepseek-v3-search": ["online"],
+    "deepseek-r1": {'model': 'deepseek', 'user_action': ["deep"]},
+    "deepseek-r1-search": {'model': 'deepseek', 'user_action': ["deep", "online"]},
+    "deepseek-v3": {'model': 'deepseek', 'user_action': []},
+    "deepseek-v3-search": {'model': 'deepseek', 'user_action': ["online"]},
+    'doubao': {'model': 'doubao', 'user_action': []},  # noqa
+    'doubao-search': {'model': 'doubao', 'user_action': ["online"]},  # noqa
+    'qwen': {'model': 'qwen', 'user_action': []},
+    'qwen-search': {'model': 'qwen', 'user_action': ["online"]},
 }
 
 # 用于存储 device_id 对应的 User-Agent
@@ -255,12 +264,13 @@ def truncate_messages(messages: List[Message], max_chars: int = MAX_CHARS) -> Li
 def prepare_request_payload(request: ChatCompletionRequest, device_id: str, conversation_id: str):
     truncated_messages = truncate_messages(request.messages)
     concatenated_message = concatenate_messages(truncated_messages)
-    user_action = model_to_user_action[request.model]
+    user_action = model_to_user_action.get(request.model, {}).get('user_action', [])
+    model = model_to_user_action.get(request.model, {}).get("model", "deepseek")
     payload = {
         "stream": True,
         "botCode": "AI_SEARCH",
         "userAction": ",".join(user_action),
-        "model": "deepseek",
+        "model": model,
         "conversationId": conversation_id,
         "question": concatenated_message,
     }
@@ -353,7 +363,7 @@ async def chat_completions(request: ChatCompletionRequest, _: None = Depends(che
     logger.info(f"接收到请求: {json.dumps(request.model_dump(), ensure_ascii=False)}")
 
     if request.model not in supported_models:
-        request.model = "deepseek-r1"
+        request.model = "deepseek-v3"
 
     device_id = generate_device_id()
     print(f"device_id: {device_id}")

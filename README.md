@@ -1,6 +1,6 @@
-# 当贝DeepSeek转API脚本
+# DB DeepSeek转API脚本
 
-这是一个将当贝网页deepseek(https://ai.dangbei.com) 转为兼容OpenAI API的python脚本。
+这是一个将dangbei(下简称为DB)网页deepseek转为兼容OpenAI API的python脚本。
 
 基于linux.do论坛 **@云胡不喜** 佬的脚本魔改。
 原贴点击[传送门](https://linux.do/t/topic/444507) 。
@@ -10,10 +10,16 @@
 
 ## 支持模型
 
-- deepseek-r1 模型：`deepseek-r1`
-- deepseek-r1 模型，支持搜索功能：`deepseek-r1-search`
-- deepseek-v3 模型：`deepseek-v3`
-- deepseek-v3 模型，支持搜索功能：`deepseek-v3-search`
+| 模型名                | 支持深度思考 | 支持联网搜索 | 描述                        |
+|--------------------|--------|--------|---------------------------|
+| deepseek-r1        | ✅      | ❌      | 671b满血版r1模型               |
+| deepseek-r1-search | ✅      | ✅      | 包含联网搜索功能的671b满血r1模型       |
+| deepseek-v3        | ❌      | ❌      |                           |
+| deepseek-v3-search | ❌      | ✅      |                           |
+| doubao             | ❌      | ❌      | 该模型被DB增加了系统提示词，暂不清楚具体什么模型 |
+| doubao-search      | ❌      | ✅      |                           |
+| qwen               | ❌      | ❌      | 该模型被DB增加了系统提示词，暂不清楚具体什么模型 |
+| qwen-search        | ❌      | ✅      |                           |
 
 ## 部署说明
 
@@ -47,10 +53,10 @@ docker run -d -p 8000:8000 -e API_KEY=sk-DangBei666 -e MAX_CHARS=99999  -eENABLE
 ---
 
 - **优化显示效果**
-  - 修改新闻等`card内容`展示方式为表格
+    - 修改新闻等`card内容`展示方式为表格
 - **优化上下文管理**
-  - 支持`主动截断`上下文
-  - 仅处理user和assistant的内容，保留其他内容，可通过变量配置
+    - 支持`主动截断`上下文
+    - 仅处理user和assistant的内容，保留其他内容，可通过变量配置
 
 ---
 
@@ -64,20 +70,20 @@ docker run -d -p 8000:8000 -e API_KEY=sk-DangBei666 -e MAX_CHARS=99999  -eENABLE
 ---
 
 - **优化联网搜索**
-  - deepseek-r1 模型：`deepseek-r1`
-  - deepseek-r1 模型，支持搜索功能：`deepseek-r1-search`
-  - deepseek-v3 模型：`deepseek-v3`
-  - deepseek-v3 模型，支持搜索功能：`deepseek-v3-search`
+    - deepseek-r1 模型：`deepseek-r1`
+    - deepseek-r1 模型，支持搜索功能：`deepseek-r1-search`
+    - deepseek-v3 模型：`deepseek-v3`
+    - deepseek-v3 模型，支持搜索功能：`deepseek-v3-search`
 - **新增功能**
-  - 添加`CORS配置`开关
+    - 添加`CORS配置`开关
 - **功能调整**
-  - 移除主动发送`清除上下文`内容的功能
-  - 更新`requirements`文件
+    - 移除主动发送`清除上下文`内容的功能
+    - 更新`requirements`文件
 - **功能调整**
-  - 修复`上下文关联失败`问题
-  - 修复`签名验证失败`问题
-  - 修复`新闻或带 URL 的内容无法解析`问题
-  - 将日志长内容换行输出`修改为单行输出`
+    - 修复`上下文关联失败`问题
+    - 修复`签名验证失败`问题
+    - 修复`新闻或带 URL 的内容无法解析`问题
+    - 将日志长内容换行输出`修改为单行输出`
 
 ---
 
