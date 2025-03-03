@@ -29,6 +29,9 @@ MAX_CHARS=99999
 # 是否启用跨域
 ENABLE_CORS=True
 
+# 是否启用随机UA（可选：True/False，默认为False）
+RANDOM_UA=False
+
 # 日志级别（可选：DEBUG/INFO/WARNING/ERROR/CRITICAL）
 LOG_LEVEL=DEBUG
 ```
@@ -36,10 +39,29 @@ LOG_LEVEL=DEBUG
 **2.支持Docker部署，可直接使用 Docker 命令**
 
 ```bash
-docker run -d -p 8000:8000 -e API_KEY=sk-DangBei666 -e MAX_CHARS=99999  -eENABLE_CORS=True -e LOG_LEVEL=INFO --name dangbei2api xy2yp/dangbei2api:latest
+docker run -d -p 8000:8000 -e API_KEY=sk-DangBei666 -e MAX_CHARS=99999 -e RANDOM_UA=False -eENABLE_CORS=True -e LOG_LEVEL=INFO --name dangbei2api xy2yp/dangbei2api:latest
 ```
 
 # 更新历史
+
+<details>
+<summary> ver.20250303</summary>
+
+---
+
+- **增加随机UA功能**
+  - 增加随机UA功能，可自行配置是否开启
+- **优化代码结构**
+  - 优化代码结构，更符合 PEP 8 规范
+  - 优化日志输出
+  - 关闭httpx和httpcore的日志输出
+  - 删除无效的包导入
+
+---
+
+</details>
+
+---
 
 <details>
 <summary> ver.20250228</summary>
