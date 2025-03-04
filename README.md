@@ -2,6 +2,10 @@
 
 这是一个将Dangbei网页deepseek转为兼容OpenAI API的python脚本。
 
+声明：
+项目仅供学习使用，禁止商用。
+逆向API是不稳定的，建议使用官方服务。
+
 基于linux.do论坛 **@云胡不喜** 佬的脚本魔改。
 原贴点击[传送门](https://linux.do/t/topic/444507) 。
 
