@@ -1,6 +1,6 @@
-# 当贝DeepSeek转API脚本
+# Dangbei DeepSeek转API脚本
 
-这是一个将当贝网页deepseek(https://ai.dangbei.com) 转为兼容OpenAI API的python脚本。
+这是一个将Dangbei网页deepseek转为兼容OpenAI API的python脚本。
 
 基于linux.do论坛 **@云胡不喜** 佬的脚本魔改。
 原贴点击[传送门](https://linux.do/t/topic/444507) 。
@@ -17,7 +17,7 @@
 
 ## 部署说明
 
-**1.本地部署前修改 .env 文件，配置环境变量**
+**1.本地部署前修改 `.env` 文件，配置环境变量**
 
 ```plaintext
 # API密钥配置（替换为自己的密钥）
@@ -42,7 +42,7 @@ LOG_LEVEL=DEBUG
 docker run -d -p 8000:8000 -e API_KEY=sk-DangBei666 -e MAX_CHARS=99999 -e RANDOM_UA=False -eENABLE_CORS=True -e LOG_LEVEL=INFO --name dangbei2api xy2yp/dangbei2api:latest
 ```
 
-# 更新历史
+## 更新历史
 
 <details>
 <summary> ver.20250303</summary>
@@ -50,12 +50,12 @@ docker run -d -p 8000:8000 -e API_KEY=sk-DangBei666 -e MAX_CHARS=99999 -e RANDOM
 ---
 
 - **增加随机UA功能**
-  - 增加随机UA功能，可自行配置是否开启
+  - 增加`随机UA功能`，可自行配置是否开启
 - **优化代码结构**
-  - 优化代码结构，更符合 PEP 8 规范
-  - 优化日志输出
-  - 关闭httpx和httpcore的日志输出
-  - 删除无效的包导入
+  - 优化`代码结构`，更符合 PEP 8 规范
+  - 优化`日志输出`
+  - 关闭`httpx`和`httpcore`的日志输出
+  - 删除`无效的包导入`
 
 ---
 
